@@ -1,0 +1,6 @@
+{
+  "name": "DukaanSmart",
+  "description": "All-in-One Shop Management System for Indian Businesses with POS, Udhaar credit ledger, inventory tracking, and billing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

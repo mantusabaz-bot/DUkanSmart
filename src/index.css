@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans;
+  }
+}
+
+/* Thermal Printer CSS media styles for 58mm and 80mm roll printers */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #thermal-invoice-receipt,
+  #thermal-invoice-receipt * {
+    visibility: visible;
+  }
+  #thermal-invoice-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 80mm;
+    margin: 0 auto;
+    padding: 2mm;
+    font-size: 11px;
+    background: white;
+    color: black;
+  }
+
+  @page {
+    size: auto;
+    margin: 3mm;
+  }
+}
+
