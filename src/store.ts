@@ -42,8 +42,10 @@ interface AppState {
 
   addCustomer: (customer: Omit<Customer, 'id' | 'balance' | 'createdAt'>) => void;
   updateCustomer: (id: string, customer: Partial<Customer>) => void;
+  deleteCustomer: (id: string, options?: { forcePermanent?: boolean }) => boolean;
   
   recordSale: (sale: Omit<Sale, 'id' | 'date'> & { orderNumber?: string }) => Sale;
+  deleteSale: (saleId: string) => boolean;
   recordPayment: (customerId: string, amount: number, method: string) => void;
   resetSampleData: () => void;
 }
@@ -107,6 +109,33 @@ export const useStore = create<AppState>()(
       updateCustomer: (id, updated) => set((state) => ({
         customers: state.customers.map(c => c.id === id ? { ...c, ...updated } : c)
       })),
+      deleteCustomer: (id, options) => {
+        const state = get();
+        const target = state.customers.find(c => c.id === id);
+        if (!target) return false;
+
+        // Check if customer has financial history (sales or payments)
+        const hasSales = state.sales.some(s => s.customerId === id);
+        const hasPayments = state.payments.some(p => p.customerId === id);
+        const hasFinancialHistory = hasSales || hasPayments;
+
+        if (hasFinancialHistory && !options?.forcePermanent) {
+          // Safe archive approach: marks as archived, zero-outs active outstanding balance so Total Market Outstanding recalculates correctly
+          set((currentState) => ({
+            customers: currentState.customers.map(c => 
+              c.id === id 
+                ? { ...c, isArchived: true, balance: 0, archivedAt: new Date().toISOString() } 
+                : c
+            )
+          }));
+        } else {
+          // Permanently delete customer record if no critical financial history or explicitly requested
+          set((currentState) => ({
+            customers: currentState.customers.filter(c => c.id !== id)
+          }));
+        }
+        return true;
+      },
 
       recordSale: (saleData) => {
         const state = get();
@@ -166,6 +195,32 @@ export const useStore = create<AppState>()(
         });
 
         return sale;
+      },
+
+      deleteSale: (saleId: string) => {
+        const state = get();
+        const saleToDelete = state.sales.find(s => s.id === saleId);
+        if (!saleToDelete) return false;
+
+        // Clean up linked Udhaar (Credit) record if customer was given credit on this sale
+        let updatedCustomers = state.customers;
+        const linkedCreditPayments = state.payments.filter(p => p.saleId === saleId && p.type === 'CREDIT_GIVEN');
+        
+        if (saleToDelete.customerId && linkedCreditPayments.length > 0) {
+          const totalLinkedCredit = linkedCreditPayments.reduce((sum, p) => sum + p.amount, 0);
+          updatedCustomers = state.customers.map(c => 
+            c.id === saleToDelete.customerId ? { ...c, balance: Math.max(0, c.balance - totalLinkedCredit) } : c
+          );
+        }
+
+        // Filter out the sale and its linked CREDIT_GIVEN payment records
+        set({
+          sales: state.sales.filter(s => s.id !== saleId),
+          payments: state.payments.filter(p => p.saleId !== saleId),
+          customers: updatedCustomers,
+        });
+
+        return true;
       },
 
       recordPayment: (customerId, amount, method) => {

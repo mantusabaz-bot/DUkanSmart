@@ -3,15 +3,27 @@ import { useStore } from '../store';
 import { format } from 'date-fns';
 import { 
   FileText, Download, Printer, QrCode, Search, Filter, 
-  CheckCircle2, AlertCircle, Eye, X, Share2 
+  CheckCircle2, AlertCircle, Eye, X, Share2, Trash2, AlertTriangle, Loader2 
 } from 'lucide-react';
 import { Sale } from '../types';
 
 export default function Reports() {
-  const { sales, customers, user, paymentSettings } = useStore();
+  const { sales, customers, user, paymentSettings, deleteSale } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [methodFilter, setMethodFilter] = useState<'All' | 'UPI' | 'Cash' | 'Card' | 'Udhaar'>('All');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+
+  // Delete Bill Confirmation Modal State
+  const [billToDelete, setBillToDelete] = useState<Sale | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage(prev => prev?.text === text ? null : prev);
+    }, 3500);
+  };
 
   const isUpi = (method: string) => ['UPI', 'UPI QR', 'Google Pay', 'PhonePe', 'Paytm', 'Other UPI'].includes(method);
 
@@ -81,6 +93,45 @@ ${sale.total > sale.amountPaid ? `Balance Due    : ₹${(sale.total - sale.amoun
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!billToDelete) return;
+    setIsDeleting(true);
+
+    try {
+      // 1. Backend verification & authorization check
+      const res = await fetch(`/api/bills/${billToDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shopOwnerId: user?.id || 'default-owner',
+          orderNumber: billToDelete.orderNumber,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete bill on server.');
+      }
+
+      // 2. Persist deletion in state and database storage
+      const success = deleteSale(billToDelete.id);
+      if (success) {
+        showToast('Bill deleted successfully.', 'success');
+        setBillToDelete(null);
+        if (selectedSale?.id === billToDelete.id) {
+          setSelectedSale(null);
+        }
+      } else {
+        throw new Error('Failed to update local records.');
+      }
+    } catch (err: any) {
+      console.error('Error deleting bill:', err);
+      showToast(err.message || 'Error deleting bill. Please try again.', 'error');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -234,6 +285,7 @@ ${sale.total > sale.amountPaid ? `Balance Due    : ₹${(sale.total - sale.amoun
                           onClick={() => setSelectedSale(sale)}
                           className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer transition-colors"
                           title="View Receipt"
+                          aria-label="View Receipt"
                         >
                           <Eye size={15} />
                         </button>
@@ -241,8 +293,17 @@ ${sale.total > sale.amountPaid ? `Balance Due    : ₹${(sale.total - sale.amoun
                           onClick={() => downloadReceipt(sale)}
                           className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded cursor-pointer transition-colors"
                           title="Download Receipt"
+                          aria-label="Download Receipt"
                         >
                           <Download size={15} />
+                        </button>
+                        <button
+                          onClick={() => setBillToDelete(sale)}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded cursor-pointer transition-colors"
+                          title="Delete Bill"
+                          aria-label="Delete Bill"
+                        >
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </td>
@@ -362,7 +423,114 @@ ${sale.total > sale.amountPaid ? `Balance Due    : ₹${(sale.total - sale.amoun
                 <Download size={14} />
                 <span>Download</span>
               </button>
+              <button
+                onClick={() => {
+                  const sale = selectedSale;
+                  setBillToDelete(sale);
+                }}
+                className="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 cursor-pointer"
+                title="Delete Bill"
+              >
+                <Trash2 size={14} />
+                <span>Delete</span>
+              </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE BILL CONFIRMATION DIALOG MODAL */}
+      {billToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 border border-slate-100">
+            {/* Header */}
+            <div className="p-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 mx-auto flex items-center justify-center mb-3">
+                <Trash2 size={24} />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">Delete Bill Confirmation</h3>
+              <p className="text-xs text-slate-600 mt-2">
+                Are you sure you want to delete this bill?
+              </p>
+              
+              {/* Bill Details Box */}
+              <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-left space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Order Ref:</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {billToDelete.orderNumber || billToDelete.id.slice(0, 8).toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Bill:</span>
+                  <span className="font-bold text-slate-900">₹{billToDelete.total.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Payment:</span>
+                  <span className="font-medium text-slate-700">{billToDelete.paymentMethod}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Date:</span>
+                  <span className="text-slate-600">{format(new Date(billToDelete.date), 'dd/MM/yyyy')}</span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-3 text-left">
+                ⚠️ This bill will be permanently removed from reports and sales records.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex space-x-2.5">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setBillToDelete(null)}
+                className="flex-1 py-2.5 px-4 border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 px-4 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-red-600/25 flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 animate-in slide-in-from-bottom-5">
+          <div className={`px-4 py-3 rounded-xl shadow-lg border flex items-center space-x-2 text-xs font-bold ${
+            toastMessage.type === 'success'
+              ? 'bg-emerald-600 text-white border-emerald-500'
+              : toastMessage.type === 'error'
+              ? 'bg-red-600 text-white border-red-500'
+              : 'bg-blue-600 text-white border-blue-500'
+          }`}>
+            {toastMessage.type === 'success' ? (
+              <CheckCircle2 size={16} />
+            ) : toastMessage.type === 'error' ? (
+              <AlertCircle size={16} />
+            ) : (
+              <AlertTriangle size={16} />
+            )}
+            <span>{toastMessage.text}</span>
           </div>
         </div>
       )}

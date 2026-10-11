@@ -3,6 +3,7 @@ export interface User {
   name: string;
   phone: string;
   shopName: string;
+  role?: 'owner' | 'admin' | 'staff';
   shopAddress?: string;
   gstin?: string;
 }
@@ -28,6 +29,8 @@ export interface Customer {
   address: string;
   balance: number; // Positive means they owe money (Udhaar)
   createdAt: string;
+  isArchived?: boolean;
+  archivedAt?: string;
 }
 
 export interface SaleItem {
@@ -55,6 +58,8 @@ export type PaymentStatusType = 'Paid' | 'Pending' | 'Partial';
 export interface Sale {
   id: string;
   orderNumber: string; // e.g. DS-1001
+  shopId?: string;
+  shopName?: string;
   customerId?: string;
   items: SaleItem[];
   subtotal: number;
